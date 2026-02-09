@@ -7,20 +7,37 @@ import 'package:student_project_management/src/features/prompts/data/prompt_repo
 class GeminiAIService implements AIService {
   final ai.GenerativeModel _model;
   final PromptRepository _promptRepo;
+  final String _apiKey;
 
   GeminiAIService(String apiKey, String modelName, this._promptRepo)
-      : _model = ai.GenerativeModel(
+      : _apiKey = apiKey,
+        _model = ai.GenerativeModel(
           model: modelName.isEmpty ? 'gemini-1.5-flash' : modelName,
           apiKey: apiKey,
         );
 
   @override
   Future<Map<String, dynamic>> extractProjectDetails(String documentText) async {
-    String template = await _promptRepo.getPromptTemplate('extraction');
-    final prompt = template.replaceAll('{{documentText}}', documentText);
-    final content = [ai.Content.text(prompt)];
-    final response = await _model.generateContent(content);
-    return _parseJsonFromResponse(response.text);
+    print('GeminiAIService.extractProjectDetails called');
+    if (_apiKey.isEmpty) {
+      print('ERROR: Gemini API Key is empty!');
+      return {'error': 'API Key is missing'};
+    }
+
+    try {
+      String template = await _promptRepo.getPromptTemplate('extraction');
+      final prompt = template.replaceAll('{{documentText}}', documentText);
+      final content = [ai.Content.text(prompt)];
+      
+      print('Sending request to Gemini...');
+      final response = await _model.generateContent(content);
+      print('Gemini Response: ${response.text}');
+      
+      return _parseJsonFromResponse(response.text);
+    } catch (e) {
+      print('Gemini API Error: $e');
+      return {'error': 'Gemini API Exception: $e'};
+    }
   }
 
   @override

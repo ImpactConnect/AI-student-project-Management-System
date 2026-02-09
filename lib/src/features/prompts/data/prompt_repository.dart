@@ -1,4 +1,3 @@
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:student_project_management/src/features/projects/data/project_repository.dart';
@@ -25,7 +24,7 @@ class FirestorePromptRepository implements PromptRepository {
     if (snapshot.docs.isNotEmpty) {
       return snapshot.docs.first.data()['template'] as String;
     }
-    
+
     // Fallback if prompt not found in DB
     return _getDefaultPrompt(promptName);
   }
@@ -57,72 +56,103 @@ Return ONLY valid JSON in this exact format:
   "objectives": "extracted objectives",
   "year": "2024"
 }
-'''
+''',
       },
       {
         'name': 'quality_analysis',
-        'description': 'Analyzes the quality of a project proposal',
+        'description': 'Analyzes a completed project and extracts key insights',
         'template': '''
-You are an expert academic advisor reviewing a student project proposal.
+You are an expert academic reviewer analyzing a completed student thesis/project.
 
 Project Title: {{title}}
 
-Objectives:
+Objectives/Abstract:
 {{objectives}}
 
-Provide constructive feedback on:
-1. Clarity of objectives
-2. Feasibility
-3. Originality
-4. Scope appropriateness
+Based on the information provided, extract and summarize the following sections. 
+CRITICAL: If a section is NOT found in the text, explicitly state "Not available in the provided document". Do NOT invent information.
 
-Also generate:
-- A list of 3 potential "Achievements" or milestones.
-- A list of 3 "Recommendations" for improvement.
+1. **Problem Statement**: What specific problem or gap is being solved?
+2. **Objectives**: The main goals.
+3. **Methodology**: specific algorithms, tools (e.g., Flutter, Python), or research methods used.
+4. **Implementation**: How was the system built? (Architecture, key modules).
+5. **Results/Outcomes**: What was achieved? (Accuracy metrics, user feedback, successful deployment).
+6. **Areas for Improvement**: Weaknesses or limitations mentioned.
+7. **Recommendations**: Future work.
 
-Return response as JSON:
+Return response as JSON in this exact format:
 {
-  "feedback": "constructive feedback text...",
-  "achievements": ["achievement 1", "achievement 2", "achievement 3"],
-  "recommendations": ["rec 1", "rec 2", "rec 3"]
+  "problemStatement": "Summary of problem...",
+  "objectives": ["Obj 1", "Obj 2"],
+  "methodology": "Methodology summary...",
+  "implementation": "Implementation details...",
+  "results": "Results summary...",
+  "areasForImprovement": ["Weakness 1", "Weakness 2"],
+  "recommendations": ["Rec 1", "Rec 2"]
 }
-'''
+''',
       },
       {
         'name': 'proposal_check',
-        'description': 'Checks for duplicate topics and suggests alternatives',
+        'description':
+            'Checks for duplicate topics with detailed matching analysis',
         'template': '''
 You are a Research Topic Validator.
 
-Analyzer the new proposed topic:
+Analyze the new proposed topic:
 Title: {{title}}
 Objectives: {{objectives}}
 
-Compare with these existing similar projects:
+Compare with these existing projects:
 {{existingProjects}}
 
-1. Determine if the new topic is too similar (Duplicate).
-2. If Duplicate, suggest 3 alternative directions or refinements.
-3. If Novel, suggest 3 ways to expand it.
+Provide a detailed analysis:
+1. Calculate overall matching percentage (0-100%). IMPORTANT: If any existing project has a similarity > 50%, the Overall Matching Percentage MUST be at least that high. Do not output 0% if there are matches.
+2. List ALL projects that have >20% similarity.
+3. Describe the similarities.
+4. Provide recommendations.
+5. Suggest 3 alternative distinct project titles based on the user's idea but with a different angle.
 
-Return as JSON:
+Return as JSON in this EXACT format:
 {
   "isDuplicate": true/false,
-  "similarityAnalysis": "analysis text...",
-  "suggestions": ["suggestion 1", "suggestion 2", "suggestion 3"]
+  "matchingPercentage": 75,
+  "matchedProjects": [
+    {
+      "id": "project_id",
+      "title": "Project Title",
+      "studentName": "Student Name",
+      "year": "2024",
+      "department": "Computer Science",
+      "similarity": 85
+    }
+  ],
+  "similarityAnalysis": "Detailed analysis...",
+  "recommendations": "Specific recommendations...",
+  "suggestions": ["General suggestion 1", "General suggestion 2"],
+  "alternativeTitles": ["Alternative Title 1", "Alternative Title 2", "Alternative Title 3"]
 }
-'''
-      }
+''',
+      },
     ];
 
     final batch = _firestore.batch();
     final collection = _firestore.collection('prompts');
 
     for (var prompt in prompts) {
-      final snapshot = await collection.where('name', isEqualTo: prompt['name']).get();
+      final snapshot = await collection
+          .where('name', isEqualTo: prompt['name'])
+          .get();
       if (snapshot.docs.isEmpty) {
         final docRef = collection.doc();
         batch.set(docRef, prompt);
+      } else {
+        // Force update for development/refinement
+        final docRef = snapshot.docs.first.reference;
+        batch.update(docRef, {
+          'template': prompt['template'],
+          'description': prompt['description'],
+        });
       }
     }
     await batch.commit();

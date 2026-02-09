@@ -7,9 +7,11 @@ import 'package:student_project_management/src/features/prompts/data/prompt_repo
 class OpenAIService implements AIService {
   final String _modelName;
   final PromptRepository _promptRepo;
+  final String _apiKey;
 
   OpenAIService(String apiKey, String modelName, this._promptRepo)
-      : _modelName = modelName.isEmpty ? 'gpt-3.5-turbo' : modelName {
+      : _apiKey = apiKey,
+        _modelName = modelName.isEmpty ? 'gpt-3.5-turbo' : modelName {
     OpenAI.apiKey = apiKey;
   }
 
@@ -44,7 +46,14 @@ class OpenAIService implements AIService {
   }
 
   Future<Map<String, dynamic>> _generate(String prompt) async {
+    print('OpenAIService._generate called');
+    if (_apiKey.isEmpty) {
+       print('ERROR: OpenAI API Key is empty!');
+       return {'error': 'OpenAI API Key is missing'};
+    }
+
     try {
+      print('Sending request to OpenAI model: $_modelName');
       final completion = await OpenAI.instance.chat.create(
         model: _modelName,
         messages: [
@@ -53,11 +62,13 @@ class OpenAIService implements AIService {
             role: OpenAIChatMessageRole.user,
           ),
         ],
-      );
+      ).timeout(const Duration(seconds: 30));
 
       final content = completion.choices.first.message.content?.first.text;
+      print('OpenAI Response: $content');
       return _parseJsonFromResponse(content);
     } catch (e) {
+      print('OpenAI API Error: $e');
       return {'error': 'OpenAI Error: $e'};
     }
   }

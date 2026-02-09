@@ -1,5 +1,5 @@
-
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:student_project_management/src/features/projects/domain/project.dart';
 
@@ -8,7 +8,7 @@ class CsvExporter {
     StringBuffer sb = StringBuffer();
     // Header
     sb.writeln('ID,Title,Student,Department,Year,Status,Date');
-    
+
     for (var p in projects) {
       sb.writeln(
         '${_escape(p.id)},'
@@ -17,7 +17,7 @@ class CsvExporter {
         '${_escape(p.department)},'
         '${_escape(p.year)},'
         '${_escape(p.status.name)},'
-        '${_escape(p.createdAt.toIso8601String())}'
+        '${_escape(p.createdAt.toIso8601String())}',
       );
     }
     return sb.toString();
@@ -31,6 +31,10 @@ class CsvExporter {
   }
 
   static Future<String?> saveAndShow(String csvContent, String fileName) async {
+    if (kIsWeb) {
+      print('CSV Export content:\n$csvContent'); // Fallback for debugging
+      return null;
+    }
     try {
       final directory = await getApplicationDocumentsDirectory();
       final file = File('${directory.path}/$fileName');

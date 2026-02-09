@@ -21,6 +21,14 @@ class AISettingsRepository {
     });
   }
 
+  Future<AIConfig> getAIConfig() async {
+    final snapshot = await _firestore.collection('settings').doc('ai_config').get();
+    if (!snapshot.exists || snapshot.data() == null) {
+      return AIConfig.empty();
+    }
+    return AIConfig.fromMap(snapshot.data()!);
+  }
+
   Future<void> updateAIConfig(AIConfig config) async {
     await _firestore
         .collection('settings')

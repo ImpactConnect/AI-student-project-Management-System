@@ -54,56 +54,132 @@ class _ProjectListScreenState extends ConsumerState<ProjectListScreen> {
             onTap: (projectId) => context.go('/projects/$projectId'),
           );
 
-          return Row(
+          return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Filter Sidebar
+              // Filter Bar at Top
               if (_showFilters)
                 Container(
-                  width: 250,
+                  padding: const EdgeInsets.all(16.0),
                   decoration: BoxDecoration(
-                    border: Border(right: BorderSide(color: Theme.of(context).dividerColor)),
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.3),
+                    border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor)),
                   ),
-                  child: _buildFilters(projects),
+                  child: Row(
+                    children: [
+                      const Text('Filters:', style: TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: _buildDropdown(
+                          'Year',
+                          ['All', ...projects.map((p) => p.year).toSet().toList()],
+                          _selectedYear,
+                          (val) => setState(() => _selectedYear = val == 'All' ? null : val),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: _buildDropdown(
+                          'Department',
+                          ['All', ...projects.map((p) => p.department).toSet().toList()],
+                          _selectedDepartment,
+                          (val) => setState(() => _selectedDepartment = val == 'All' ? null : val),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      FilledButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _selectedYear = null;
+                            _selectedDepartment = null;
+                            _selectedStatus = null;
+                          });
+                        },
+                        icon: const Icon(Icons.clear),
+                        label: const Text('Clear'),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton.tonalIcon(
+                        onPressed: () async {
+                          final csv = CsvExporter.generateProjectCsv(filteredProjects);
+                          final path = await CsvExporter.saveAndShow(csv, 'projects_export.csv');
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(path != null ? 'Exported to $path' : 'Export failed')),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.download),
+                        label: const Text('Export to CSV'),
+                      ),
+                    ],
+                  ),
                 ),
               
-              // Data Grid
+              // Data Grid with modern styling
               Expanded(
-                child: SfDataGrid(
-                  source: dataSource,
-                  columnWidthMode: ColumnWidthMode.fill,
-                  selectionMode: SelectionMode.single,
-                  allowSorting: true,
-                  onCellTap: (details) {
-                     if (details.rowColumnIndex.rowIndex == 0) return; // Header
-                     final rowIndex = details.rowColumnIndex.rowIndex - 1;
-                     if (rowIndex >= 0 && rowIndex < filteredProjects.length) {
-                       final project = filteredProjects[rowIndex];
-                       context.go('/projects/${project.id}');
-                     }
-                  },
-                  columns: <GridColumn>[
-                     GridColumn(
-                        columnName: 'title',
-                        label: _buildHeader('Title'),
-                        width: 250),
-                    GridColumn(
-                        columnName: 'student',
-                        label: _buildHeader('Student')),
-                    GridColumn(
-                        columnName: 'year',
-                        label: _buildHeader('Year'),
-                        width: 80),
-                    GridColumn(
-                        columnName: 'department',
-                        label: _buildHeader('Department')),
-                    GridColumn(
-                        columnName: 'status',
-                        label: _buildHeader('Status')),
-                    GridColumn(
-                        columnName: 'date',
-                        label: _buildHeader('Date')),
-                  ],
+                child: Container(
+                  margin: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surface,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: SfDataGrid(
+                      source: dataSource,
+                      columnWidthMode: ColumnWidthMode.fill, // Fill available width
+                      selectionMode: SelectionMode.single,
+                      allowSorting: true,
+                      gridLinesVisibility: GridLinesVisibility.horizontal,
+                      headerGridLinesVisibility: GridLinesVisibility.none,
+                      rowHeight: 60,
+                      headerRowHeight: 56,
+                      isScrollbarAlwaysShown: true, // Always show scrollbar
+                      verticalScrollPhysics: const AlwaysScrollableScrollPhysics(),
+                      onCellTap: (details) {
+                         if (details.rowColumnIndex.rowIndex == 0) return; // Header
+                         final rowIndex = details.rowColumnIndex.rowIndex - 1;
+                         if (rowIndex >= 0 && rowIndex < filteredProjects.length) {
+                           final project = filteredProjects[rowIndex];
+                           context.go('/projects/${project.id}');
+                         }
+                      },
+                      columns: <GridColumn>[
+                         GridColumn(
+                            columnName: 'sn',
+                            label: _buildHeader('S/N'),
+                            width: 70),
+                         GridColumn(
+                            columnName: 'title',
+                            label: _buildHeader('Title'),
+                            columnWidthMode: ColumnWidthMode.fill), // Takes remaining space, allows wrapping
+                        GridColumn(
+                            columnName: 'student',
+                            label: _buildHeader('Student'),
+                            width: 180),
+                        GridColumn(
+                            columnName: 'year',
+                            label: _buildHeader('Year'),
+                            width: 100),
+                        GridColumn(
+                            columnName: 'department',
+                            label: _buildHeader('Department'),
+                            width: 180),
+                        GridColumn(
+                            columnName: 'date',
+                            label: _buildHeader('Date'),
+                            width: 140),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -124,65 +200,19 @@ class _ProjectListScreenState extends ConsumerState<ProjectListScreen> {
 
   Widget _buildHeader(String text) {
     return Container(
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
       alignment: Alignment.centerLeft,
-      child: Text(text, style: const TextStyle(fontWeight: FontWeight.bold)),
-    );
-  }
-
-  Widget _buildFilters(List<Project> projects) {
-    // Extract unique values
-    final years = projects.map((p) => p.year).toSet().toList()..sort();
-    final depts = projects.map((p) => p.department).toSet().toList()..sort();
-    final statuses = ProjectStatus.values.map((e) => e.name).toList();
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Filters', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              TextButton(
-                onPressed: () {
-                  setState(() {
-                    _selectedYear = null;
-                    _selectedDepartment = null;
-                    _selectedStatus = null;
-                  });
-                }, 
-                child: const Text('Clear'),
-              ),
-            ],
-          ),
-          const Divider(),
-          _buildDropdown('Year', years, _selectedYear, (v) => setState(() => _selectedYear = v)),
-          const SizedBox(height: 16),
-          _buildDropdown('Department', depts, _selectedDepartment, (v) => setState(() => _selectedDepartment = v)),
-          const SizedBox(height: 16),
-          _buildDropdown('Status', statuses, _selectedStatus, (v) => setState(() => _selectedStatus = v)),
-          const SizedBox(height: 32),
-          const Divider(),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: projects.isEmpty ? null : () async {
-              final csv = CsvExporter.generateProjectCsv(projects);
-              final path = await CsvExporter.saveAndShow(csv, 'projects_export.csv');
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(path != null ? 'Exported to $path' : 'Export failed'))
-                );
-              }
-            },
-            icon: const Icon(Icons.download),
-            label: const Text('Export to CSV'),
-            style: FilledButton.styleFrom(
-              minimumSize: const Size(double.infinity, 45),
-            ),
-          ),
-        ],
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3),
+      ),
+      child: Text(
+        text, 
+        style: TextStyle(
+          fontWeight: FontWeight.bold,
+          fontSize: 13,
+          letterSpacing: 0.5,
+          color: Theme.of(context).colorScheme.onSurface,
+        ),
       ),
     );
   }
@@ -203,13 +233,15 @@ class ProjectDataSource extends DataGridSource {
   
   ProjectDataSource({required List<Project> projects, required this.context, required this.onTap}) {
     _projects = projects
-        .map<DataGridRow>((e) => DataGridRow(cells: [
-              DataGridCell<String>(columnName: 'title', value: e.title),
-              DataGridCell<String>(columnName: 'student', value: e.studentName),
-              DataGridCell<String>(columnName: 'year', value: e.year),
-              DataGridCell<String>(columnName: 'department', value: e.department),
-              DataGridCell<String>(columnName: 'status', value: e.status.name),
-              DataGridCell<String>(columnName: 'date', value: DateFormat.yMMMd().format(e.createdAt)),
+        .asMap()
+        .entries
+        .map<DataGridRow>((entry) => DataGridRow(cells: [
+              DataGridCell<int>(columnName: 'sn', value: entry.key + 1), // Serial number
+              DataGridCell<String>(columnName: 'title', value: entry.value.title),
+              DataGridCell<String>(columnName: 'student', value: entry.value.studentName),
+              DataGridCell<String>(columnName: 'year', value: entry.value.year),
+              DataGridCell<String>(columnName: 'department', value: entry.value.department),
+              DataGridCell<String>(columnName: 'date', value: DateFormat.yMMMd().format(entry.value.createdAt)),
             ]))
         .toList();
   }
@@ -221,30 +253,51 @@ class ProjectDataSource extends DataGridSource {
 
   @override
   DataGridRowAdapter? buildRow(DataGridRow row) {
+    final rowIndex = _projects.indexOf(row);
+    final isEven = rowIndex % 2 == 0;
+    
     return DataGridRowAdapter(
+        color: isEven 
+            ? Colors.transparent 
+            : Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.4),
         cells: row.getCells().map<Widget>((dataGridCell) {
-      if (dataGridCell.columnName == 'status') {
-         return Container(
-           alignment: Alignment.centerLeft,
-           padding: const EdgeInsets.symmetric(horizontal: 16.0),
-           child: Chip(
-             label: Text(dataGridCell.value.toString().toUpperCase(), style: const TextStyle(fontSize: 10)),
-             backgroundColor: _getStatusColor(dataGridCell.value.toString()),
-           ),
-         );
+      // S/N column - centered
+      if (dataGridCell.columnName == 'sn') {
+        return Container(
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 8.0),
+          child: Text(
+            dataGridCell.value.toString(),
+            style: const TextStyle(fontWeight: FontWeight.w500),
+          ),
+        );
       }
+      // Special handling for title column - allow text wrapping and bold
+      if (dataGridCell.columnName == 'title') {
+        return Container(
+          alignment: Alignment.centerLeft,
+          padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+          child: Text(
+            dataGridCell.value.toString(),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            softWrap: true,
+            style: const TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+            ),
+          ),
+        );
+      }
+      
       return Container(
         alignment: Alignment.centerLeft,
-        padding: const EdgeInsets.all(16.0),
-        child: Text(dataGridCell.value.toString()),
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+        child: Text(
+          dataGridCell.value.toString(),
+          style: const TextStyle(fontSize: 13),
+        ),
       );
     }).toList());
-  }
-  
-  Color _getStatusColor(String status) {
-    if (status == 'approved') return Colors.green.shade200;
-    if (status == 'rejected') return Colors.red.shade200;
-    if (status == 'needsRevision') return Colors.orange.shade200;
-    return Colors.grey.shade200;
   }
 }

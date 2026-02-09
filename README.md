@@ -14,3 +14,16 @@ A few resources to get you started if this is your first Flutter project:
 For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
+
+## Running on Web
+
+This project supports the Web platform. To run it:
+
+```bash
+flutter run -d chrome
+```
+
+**Note:**
+- PDF and CSV Export features are currently limited on Web (files will not be downloaded, check console for output).
+- Ensure your Firebase project has a Web App configured and `firebase_options.dart` includes the `web` configuration (Already set up).
+

@@ -1,12 +1,8 @@
-
-import 'dart:io';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 class DocumentParser {
-  static Future<String> extractTextFromPdf(String filePath) async {
+  static Future<String> extractTextFromPdf(List<int> bytes) async {
     try {
-      final File file = File(filePath);
-      final List<int> bytes = await file.readAsBytes();
       final PdfDocument document = PdfDocument(inputBytes: bytes);
       String text = PdfTextExtractor(document).extractText();
       document.dispose();

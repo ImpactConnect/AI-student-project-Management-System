@@ -11,17 +11,35 @@ import 'package:student_project_management/src/features/settings/domain/ai_confi
 export 'package:student_project_management/src/features/projects/domain/ai_service_interface.dart';
 
 final aiServiceProvider = FutureProvider<AIService>((ref) async {
-  final config = await ref.watch(aiConfigStreamProvider.future);
-  final promptRepo = ref.read(promptRepositoryProvider);
-  
-  if (config.provider == AIProvider.openai) {
-    if (config.openAIKey.isEmpty) {
-      throw Exception('OpenAI API Key not configured');
+  print('[DEBUG] aiServiceProvider: Initializing...');
+  try {
+    print('[DEBUG] aiServiceProvider: Waiting for config (direct fetch)...');
+    // Using simple fetch instead of stream to prevent hanging on initial load
+    final config = await ref.read(aiSettingsRepositoryProvider).getAIConfig().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () {
+        print('[DEBUG] aiServiceProvider: Config fetch timed out, defaulting to empty');
+        return AIConfig.empty();
+      },
+    );
+    print('[DEBUG] aiServiceProvider: Got config: Provider=${config.provider}, HasKeys=${config.openAIKey.isNotEmpty}/${config.geminiKey.isNotEmpty}');
+    
+    final promptRepo = ref.read(promptRepositoryProvider);
+    
+    if (config.provider == AIProvider.openai) {
+      if (config.openAIKey.isEmpty) {
+        print('[DEBUG] aiServiceProvider: OpenAI Key missing');
+        throw Exception('OpenAI API Key not configured');
+      }
+      print('[DEBUG] aiServiceProvider: Returning OpenAIService');
+      return OpenAIService(config.openAIKey, config.openAIModel, promptRepo);
+    } else {
+      print('[DEBUG] aiServiceProvider: Returning GeminiAIService (Key present: ${config.geminiKey.isNotEmpty})');
+      return GeminiAIService(config.geminiKey, config.geminiModel, promptRepo);
     }
-    return OpenAIService(config.openAIKey, config.openAIModel, promptRepo);
-  } else {
-    // Default to Gemini
-    // Allow empty key for now if they haven't set it, but it will fail on call
-    return GeminiAIService(config.geminiKey, config.geminiModel, promptRepo);
+  } catch (e, st) {
+    print('[DEBUG] aiServiceProvider error: $e');
+    print(st);
+    rethrow;
   }
 });

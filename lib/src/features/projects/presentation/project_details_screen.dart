@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -7,101 +6,382 @@ import 'package:student_project_management/src/features/projects/data/ai_service
 import 'package:student_project_management/src/features/projects/data/project_repository.dart';
 import 'package:student_project_management/src/features/projects/domain/project.dart';
 import 'package:student_project_management/src/features/projects/presentation/project_form_screen.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 
 class ProjectDetailsScreen extends ConsumerStatefulWidget {
   final String projectId;
   const ProjectDetailsScreen({super.key, required this.projectId});
 
   @override
-  ConsumerState<ProjectDetailsScreen> createState() => _ProjectDetailsScreenState();
+  ConsumerState<ProjectDetailsScreen> createState() =>
+      _ProjectDetailsScreenState();
 }
 
 class _ProjectDetailsScreenState extends ConsumerState<ProjectDetailsScreen> {
-  bool _isGeneratingInsights = false;
+  bool _isGeneratingAnalysis = false;
 
-  Future<void> _generateInsights(Project project) async {
-    setState(() => _isGeneratingInsights = true);
+  Future<void> _generateAIAnalysis(Project project) async {
+    setState(() => _isGeneratingAnalysis = true);
+    print('Starting AI Analysis generation...');
+
     try {
+      print('Getting AI service...');
       final aiService = await ref.read(aiServiceProvider.future);
+      print('Calling analyzeProjectQuality...');
+
       final analysis = await aiService.analyzeProjectQuality(
-        project.title, 
-        project.objectives
+        project.title,
+        project.objectives,
       );
+      print('AI Analysis result: $analysis');
 
-      // Expecting keys: achievements, recommendations
-      final achievements = (analysis['achievements'] as List<dynamic>?)?.cast<String>();
-      final recommendations = (analysis['recommendations'] as List<dynamic>?)?.cast<String>();
+      // Check for errors
+      if (analysis.containsKey('error')) {
+        throw Exception(analysis['error']);
+      }
 
-      final updatedProject = Project(
-         id: project.id,
-         title: project.title,
-         objectives: project.objectives,
-         studentName: project.studentName,
-         department: project.department,
-         year: project.year,
-         supervisorId: project.supervisorId,
-         status: project.status,
-         createdAt: project.createdAt,
-         documentUrl: project.documentUrl,
-         similarityScore: project.similarityScore,
-         achievements: achievements ?? project.achievements,
-         recommendations: recommendations ?? project.recommendations,
-         aiFeedback: analysis,
-      );
-
+      // Use copyWith to update only the aiAnalysis field
+      final updatedProject = project.copyWith(aiAnalysis: analysis);
       await ref.read(projectRepositoryProvider).updateProject(updatedProject);
-      
+
+      // Force UI refresh by invalidating the provider
+      ref.invalidate(projectProvider(project.id));
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('AI Analysis generated and saved!')),
+        );
+      }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      print('AI Analysis error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
     } finally {
-      if (mounted) setState(() => _isGeneratingInsights = false);
+      print('Resetting analysis state');
+      if (mounted) setState(() => _isGeneratingAnalysis = false);
+    }
+  }
+
+  Future<void> _deleteProject(Project project) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Project?'),
+        content: Text(
+          'Are you sure you want to delete "${project.title}"? This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await ref.read(projectRepositoryProvider).deleteProject(project.id);
+      if (mounted) context.go('/projects');
+    }
+  }
+
+  void _viewDocumentInApp(String? url) {
+    if (url == null) return;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(
+            title: const Text('Document Viewer'),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.open_in_new),
+                tooltip: 'Open in Browser',
+                onPressed: () => _openInBrowser(url),
+              ),
+              IconButton(
+                icon: const Icon(Icons.download),
+                tooltip: 'Download',
+                onPressed: () => _openInBrowser(url),
+              ),
+            ],
+          ),
+          body: SfPdfViewer.network(url),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openInBrowser(String? url) async {
+    if (url == null) return;
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open document')),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final projectAsync = ref.watch(projectProvider(widget.projectId));
+    final dateFormat = DateFormat('dd MMM, yyyy');
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Project Details'),
-        actions: [
-          projectAsync.when(
-            data: (project) => IconButton(
-              icon: const Icon(Icons.edit),
-              onPressed: () {
-                if (project != null) {
-                   Navigator.push(
-                     context,
-                     MaterialPageRoute(builder: (_) => ProjectFormScreen(project: project)),
-                   );
-                }
-              },
-            ),
-            loading: () => const SizedBox(),
-            error: (_,__) => const SizedBox(),
-          )
-        ],
-      ),
+      appBar: AppBar(title: const Text('Project Details')),
       body: projectAsync.when(
         data: (project) {
-          if (project == null) return const Center(child: Text('Project not found'));
+          if (project == null)
+            return const Center(child: Text('Project not found'));
           return SingleChildScrollView(
             padding: const EdgeInsets.all(32),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildHeader(context, project),
-                const SizedBox(height: 32),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            child: Center(
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 900),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center, // CENTRALIZED
                   children: [
-                    Expanded(flex: 2, child: _buildMainContent(context, project)),
-                    const SizedBox(width: 32),
-                    Expanded(flex: 1, child: _buildInsightsPanel(context, project)),
+                    // ===== TITLE SECTION (CENTERED) =====
+                    Text(
+                      project.title,
+                      style: Theme.of(context).textTheme.headlineMedium
+                          ?.copyWith(fontWeight: FontWeight.bold),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+
+                    // ===== INFO CHIPS (CENTERED) =====
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 16,
+                      runSpacing: 12,
+                      children: [
+                        _buildInfoChip(
+                          Icons.person,
+                          'Student',
+                          project.studentName,
+                        ),
+                        _buildInfoChip(
+                          Icons.school,
+                          'Department',
+                          project.department,
+                        ),
+                        _buildInfoChip(
+                          Icons.calendar_today,
+                          'Year',
+                          project.year,
+                        ),
+                        _buildInfoChip(
+                          Icons.upload_file,
+                          'Uploaded',
+                          project.dateUploaded != null
+                              ? dateFormat.format(project.dateUploaded!)
+                              : dateFormat.format(project.createdAt),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 32),
+
+                    // ===== ACTION BUTTONS (CENTERED) =====
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        if (project.documentUrl != null) ...[
+                          FilledButton.icon(
+                            onPressed: () =>
+                                _viewDocumentInApp(project.documentUrl),
+                            icon: const Icon(Icons.visibility),
+                            label: const Text('View Document'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () =>
+                                _openInBrowser(project.documentUrl),
+                            icon: const Icon(Icons.download),
+                            label: const Text('Download'),
+                          ),
+                        ],
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    ProjectFormScreen(project: project),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.edit),
+                          label: const Text('Edit'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: () => _deleteProject(project),
+                          icon: const Icon(Icons.delete, color: Colors.red),
+                          label: const Text(
+                            'Delete',
+                            style: TextStyle(color: Colors.red),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: Colors.red),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 32),
+                    const Divider(),
+                    const SizedBox(height: 24),
+
+                    // ===== OBJECTIVES SECTION =====
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Objectives / Abstract',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              project.objectives,
+                              style: Theme.of(context).textTheme.bodyLarge,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    // ===== AI ANALYSIS SECTION =====
+                    Card(
+                      color: Theme.of(context).colorScheme.secondaryContainer,
+                      child: Padding(
+                        padding: const EdgeInsets.all(24.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(Icons.auto_awesome),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'AI Analysis',
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.headlineSmall,
+                                    ),
+                                  ],
+                                ),
+                                FilledButton.icon(
+                                  onPressed: _isGeneratingAnalysis
+                                      ? null
+                                      : () => _generateAIAnalysis(project),
+                                  icon: _isGeneratingAnalysis
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(Icons.psychology),
+                                  label: Text(
+                                    _isGeneratingAnalysis
+                                        ? 'Analyzing...'
+                                        : (project.hasAiAnalysis
+                                              ? 'Regenerate'
+                                              : 'Generate Analysis'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 24),
+
+                            if (!project.hasAiAnalysis &&
+                                !_isGeneratingAnalysis)
+                              const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(32.0),
+                                  child: Text(
+                                    'Click "Generate Analysis" to get AI insights on this project.',
+                                  ),
+                                ),
+                              ),
+
+                            if (_isGeneratingAnalysis)
+                              const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(32.0),
+                                  child: Column(
+                                    children: [
+                                      CircularProgressIndicator(),
+                                      SizedBox(height: 16),
+                                      Text('Analyzing project with AI...'),
+                                    ],
+                                  ),
+                                ),
+                              ),
+
+                            if (project.hasAiAnalysis &&
+                                !_isGeneratingAnalysis) ...[
+                              _buildAnalysisSection(
+                                'Problem Statement',
+                                project.problemStatement,
+                              ),
+                              _buildAnalysisListSection(
+                                'Objectives',
+                                project.aiObjectives,
+                              ),
+                              _buildAnalysisSection(
+                                'Methodology',
+                                project.methodology,
+                              ),
+                              _buildAnalysisSection(
+                                'Implementation',
+                                project.implementation,
+                              ),
+                              _buildAnalysisSection(
+                                'Results / Outcomes',
+                                project.results,
+                              ),
+                              _buildAnalysisListSection(
+                                'Areas for Improvement',
+                                project.areasForImprovement,
+                              ),
+                              _buildAnalysisListSection(
+                                'Recommendations',
+                                project.recommendations,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
                   ],
-                )
-              ],
+                ),
+              ),
             ),
           );
         },
@@ -111,95 +391,85 @@ class _ProjectDetailsScreenState extends ConsumerState<ProjectDetailsScreen> {
     );
   }
 
-  Widget _buildHeader(BuildContext context, Project project) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Chip(label: Text(project.status.name.toUpperCase())),
-            const SizedBox(width: 16),
-            Text('Year: ${project.year}', style: Theme.of(context).textTheme.titleMedium),
-          ],
-        ),
-        const SizedBox(height: 16),
-        Text(project.title, style: Theme.of(context).textTheme.headlineLarge),
-        const SizedBox(height: 8),
-        Text('by ${project.studentName} • ${project.department}', 
-             style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Colors.grey)),
-      ],
-    );
-  }
-
-  Widget _buildMainContent(BuildContext context, Project project) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Objectives / Abstract', style: Theme.of(context).textTheme.headlineSmall),
-            const Divider(),
-            const SizedBox(height: 16),
-            Text(project.objectives, style: Theme.of(context).textTheme.bodyLarge),
-            const SizedBox(height: 32),
-            if (project.documentUrl != null)
-              OutlinedButton.icon(
-                onPressed: () {
-                   // Open URL (implement url_launcher if needed)
-                },
-                icon: const Icon(Icons.description),
-                label: const Text('View Document'),
+  Widget _buildInfoChip(IconData icon, String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: Theme.of(context).textTheme.labelSmall),
+              Text(
+                value,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
               ),
-          ],
-        ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildInsightsPanel(BuildContext context, Project project) {
-    final hasInsights = project.achievements != null && project.achievements!.isNotEmpty;
+  Widget _buildAnalysisSection(String title, String? content) {
+    if (content == null || content.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Text(content, style: Theme.of(context).textTheme.bodyLarge),
+        ],
+      ),
+    );
+  }
 
-    return Card(
-      color: Theme.of(context).colorScheme.secondaryContainer,
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Icon(Icons.auto_awesome),
-                if (!hasInsights)
-                  IconButton(
-                    onPressed: _isGeneratingInsights ? null : () => _generateInsights(project),
-                    icon: _isGeneratingInsights 
-                      ? const SizedBox(width:16,height:16,child:CircularProgressIndicator(strokeWidth:2))
-                      : const Icon(Icons.refresh),
-                    tooltip: 'Generate Insights',
-                  )
-              ],
+  Widget _buildAnalysisListSection(String title, List<String>? items) {
+    if (items == null || items.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          ...items.map(
+            (item) => Padding(
+              padding: const EdgeInsets.only(bottom: 4.0),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '• ',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  Expanded(child: Text(item)),
+                ],
+              ),
             ),
-            const SizedBox(height: 16),
-            Text('AI Insights', style: Theme.of(context).textTheme.headlineSmall),
-            const SizedBox(height: 24),
-            
-            if (!hasInsights)
-              const Text('No insights generated yet. Click refresh to analyze.'),
-
-            if (project.achievements != null) ...[
-               Text('Key Achievements', style: Theme.of(context).textTheme.titleMedium),
-               ...project.achievements!.map((a) => Text('• $a')),
-               const SizedBox(height: 16),
-            ],
-
-            if (project.recommendations != null) ...[
-               Text('Recommendations', style: Theme.of(context).textTheme.titleMedium),
-               ...project.recommendations!.map((r) => Text('• $r')),
-            ],
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
